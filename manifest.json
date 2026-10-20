@@ -1,13 +1,13 @@
 {
   "name": "sky latino",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "scrapers": [
     {
       "id": "sky-latino",
       "name": "sky latino",
-      "description": "Extractor experimental de películas. Solo devuelve medios con validación HTTP; reproducción en Nuvio pendiente.",
-      "version": "0.1.1",
-      "supportedTypes": ["movie"],
+      "description": "Fuentes de películas y series con enlaces comprobados. El catálogo se instala por separado como addon.",
+      "version": "0.2.0",
+      "supportedTypes": ["movie", "tv"],
       "filename": "providers/sky-latino.js",
       "enabled": true,
       "limited": true,

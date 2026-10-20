@@ -1,0 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+:root{color-scheme:dark;--bg:#0b1420;--panel:#111e2d;--ink:#edf4fa;--muted:#a2b3c3;--line:#2a3a4a;--accent:#8bd2ff;--font:"DM Sans",sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 var(--font);-webkit-font-smoothing:antialiased}
+button,input,textarea{font:inherit}a{color:var(--accent)}button,a,input,textarea{outline-offset:5px}button:focus-visible,a:focus-visible,textarea:focus-visible{outline:2px solid var(--accent)}
+button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.65}::selection{background:var(--accent);color:var(--bg)}

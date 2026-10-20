@@ -427,7 +427,7 @@ var require_html = __commonJS({
     function normalize(value) {
       return text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     }
-    function searchResults(html, base) {
+    function searchResults(html, base, mediaType) {
       const $ = cheerio.load(html);
       const seen = {};
       const results = [];
@@ -437,7 +437,8 @@ var require_html = __commonJS({
         let url = null;
         anchors.each(function(_2, anchor) {
           const candidate = safeURL($(anchor).attr("href"), base);
-          if (!url && candidate && new URL(candidate).origin === new URL(base).origin && /^\/pelicula\/[^/]+\/?$/.test(new URL(candidate).pathname)) url = candidate;
+          const pattern = mediaType === "series" ? /^\/serie\/[^/]+\/?$/ : /^\/pelicula\/[^/]+\/?$/;
+          if (!url && candidate && new URL(candidate).origin === new URL(base).origin && pattern.test(new URL(candidate).pathname)) url = candidate;
         });
         if (!url || seen[url]) return;
         seen[url] = true;
@@ -637,6 +638,260 @@ var require_unpack = __commonJS({
   }
 });
 
+// src/extractor-constants.js
+var require_extractor_constants = __commonJS({
+  "src/extractor-constants.js"(exports2, module2) {
+    "use strict";
+    module2.exports = {
+      UA: "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    };
+  }
+});
+
+// src/catalog-html.js
+var require_catalog_html = __commonJS({
+  "src/catalog-html.js"(exports2, module2) {
+    "use strict";
+    var cheerio = require("cheerio-without-node-native");
+    var { safeURL, text } = require_html();
+    var URL = require_url();
+    function cleanDescription(value) {
+      return text(value).replace(/pelisforte/gi, "sky latino");
+    }
+    function posterURL(value, base) {
+      const url = safeURL(value, base);
+      return url && !/\/(?:fbpf|logo|netflix|disney)[^/]*\.(?:jpg|png|webp)/i.test(url) ? url : void 0;
+    }
+    function sourceID(type, url) {
+      const slug = new URL(url).pathname.split("/").filter(Boolean)[1];
+      return "sky:" + (type === "series" ? "s:" : "m:") + slug;
+    }
+    function parseID(id) {
+      const match = /^sky:([ms]):([a-z0-9-]{1,200})(?::(\d{1,3}):(\d{1,4}))?$/.exec(id);
+      if (!match || match[1] === "m" && match[4]) return null;
+      return {
+        type: match[1] === "s" ? "series" : "movie",
+        slug: match[2],
+        season: match[3] ? Number(match[3]) : null,
+        episode: match[4] ? Number(match[4]) : null
+      };
+    }
+    function cards(html, base, type) {
+      const $ = cheerio.load(html);
+      const seen = {};
+      const results = [];
+      const list = $(".post-lst").first();
+      const articles = list.length ? list.find("article") : $("article");
+      articles.each(function(_, element) {
+        const item = $(element);
+        let url;
+        let itemType;
+        item.find("a").each(function(_2, link) {
+          const candidate = safeURL($(link).attr("href"), base);
+          if (!candidate || new URL(candidate).origin !== new URL(base).origin) return;
+          const route = /^\/(pelicula|serie)\/[a-z0-9-]+\/?$/i.exec(new URL(candidate).pathname);
+          if (!route) return;
+          itemType = route[1] === "serie" ? "series" : "movie";
+          if (type && itemType !== type) return;
+          url = candidate;
+        });
+        if (!url || seen[url]) return;
+        seen[url] = true;
+        const name = text(item.find(".entry-title, h2, h3").first().text());
+        if (!name) return;
+        const year = (text(item.find(".year, .post-yr, .entry-meta, .post-ql").text()).match(/\b(19\d{2}|20\d{2})\b/) || [])[1];
+        const img = item.find("img").first();
+        const poster = posterURL(img.attr("data-src") || img.attr("src"), base);
+        const meta = { id: sourceID(itemType, url), type: itemType, name, posterShape: "poster" };
+        if (poster) meta.poster = poster;
+        if (year) meta.releaseInfo = year;
+        results.push({ url, meta });
+      });
+      const next = [];
+      $("a[href]").each(function(_, element) {
+        const url = safeURL($(element).attr("href"), base);
+        if (url && new URL(url).origin === new URL(base).origin && /\/page\/\d+\/?/.test(url) && !next.includes(url)) next.push(url);
+      });
+      return { items: results, pagination: next };
+    }
+    function episodeLinks(html, base, seriesID) {
+      const $ = cheerio.load(html);
+      const found = {};
+      const episodes = [];
+      const listLinks = $("#episode_by_temp a[href]");
+      const episodeCards = $("article.episodes a[href]");
+      const links = listLinks.length ? listLinks : episodeCards.length ? episodeCards : $("a[href]");
+      links.each(function(_, element) {
+        const link = $(element);
+        const url = safeURL(link.attr("href"), base);
+        if (!url || new URL(url).origin !== new URL(base).origin || !/^\/episodio\/[a-z0-9-]+\/?$/.test(new URL(url).pathname)) return;
+        const candidate = text(link.closest("article, li").text()) + " " + new URL(url).pathname;
+        const number = /(?:^|[\s/-])(\d{1,3})x(\d{1,4})(?:$|[\s/-])/i.exec(candidate);
+        if (!number) return;
+        const season = Number(number[1]), episode = Number(number[2]);
+        const id = seriesID + ":" + season + ":" + episode;
+        if (found[id]) return;
+        found[id] = true;
+        episodes.push({ id, title: text(link.closest("article").find("h2,h3,.entry-title").first().text()) || season + "\xD7" + episode, season, episode, url });
+      });
+      return episodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    }
+    function detail(html, url, type) {
+      const $ = cheerio.load(html);
+      const id = sourceID(type, url);
+      const name = text($("h1").first().text());
+      if (!name || /(?:404|no encontrado|not found)/i.test(name)) throw new Error("not_found");
+      const poster = posterURL($(".post-thumbnail img, .poster img").first().attr("src"), url);
+      const description = cleanDescription($(".description, .entry-content").first().text()).slice(0, 2e3);
+      const year = ($("title").text().match(/\((19\d{2}|20\d{2})\)/) || [])[1];
+      const meta = { id, type, name, posterShape: "poster" };
+      if (poster) meta.poster = poster;
+      if (description) meta.description = description;
+      if (year) meta.releaseInfo = year;
+      if (type === "series") {
+        meta.videos = episodeLinks(html, url, id).map(function(episode) {
+          const video = Object.assign({}, episode);
+          delete video.url;
+          return video;
+        });
+      }
+      const seasons = [];
+      $("[data-season]").each(function(_, element) {
+        const number = Number($(element).attr("data-season"));
+        if (Number.isInteger(number) && number > 0 && number <= 100 && !seasons.includes(number)) seasons.push(number);
+      });
+      const inline = html.match(/var\s+torofilm_public\s*=\s*(\{[^;]+\})/);
+      let ajax;
+      try {
+        ajax = inline ? JSON.parse(inline[1]) : null;
+      } catch (_) {
+        ajax = null;
+      }
+      const post = $("[data-post][data-season]").first().attr("data-post");
+      return { meta, episodes: episodeLinks(html, url, id), seasons, ajax, post };
+    }
+    module2.exports = { cards, detail, episodeLinks, sourceID, parseID, cleanDescription };
+  }
+});
+
+// src/source.js
+var require_source = __commonJS({
+  "src/source.js"(exports2, module2) {
+    "use strict";
+    var h = require_html();
+    var c = require_catalog_html();
+    var URL = require_url();
+    var { UA } = require_extractor_constants();
+    function createSource(options) {
+      options = options || {};
+      const base = options.base || h.BASE;
+      const fetcher = options.fetch || fetch;
+      const cache = options.cache || /* @__PURE__ */ new Map();
+      function get(url, init) {
+        const key = url + (init && init.body || "");
+        const existing = cache.get(key);
+        if (existing && existing.expires > Date.now()) return Promise.resolve(existing.body);
+        return Promise.resolve().then(() => fetcher(url, Object.assign({
+          headers: { "User-Agent": UA, Referer: base + "/" }
+        }, init || {}))).then(function(response) {
+          if (!response || response.status < 200 || response.status >= 300) throw new Error("source_unavailable");
+          return response.text();
+        }).then(function(body) {
+          if (body.length > 2e6 || h.stopReason(body)) throw new Error("source_unavailable");
+          cache.set(key, { body, expires: Date.now() + 12e4 });
+          if (cache.size > 300) cache.delete(cache.keys().next().value);
+          return body;
+        });
+      }
+      function pageURL(type, page, query) {
+        if (query) return base + (page > 1 ? "/page/" + page + "/" : "/") + "?s=" + encodeURIComponent(query);
+        if (type === "series") return page === 1 ? base + "/series-1746289646" : null;
+        return page === 1 ? base + "/portal003" : base + "/todas-las-peliculas/page/" + page;
+      }
+      function catalog(type, query, skip) {
+        if (!["movie", "series"].includes(type)) return Promise.reject(new Error("invalid_type"));
+        const page = Math.floor((skip || 0) / 20) + 1;
+        const url = pageURL(type, page, query);
+        if (!url) return Promise.resolve([]);
+        return get(url).then((body) => c.cards(body, base, type).items.slice((skip || 0) % 20).map((item) => item.meta));
+      }
+      function urlFor(parsed) {
+        return base + (parsed.type === "series" ? "/serie/" : "/pelicula/") + parsed.slug;
+      }
+      function metadata(id) {
+        const parsed = c.parseID(id);
+        if (!parsed || parsed.season !== null) return Promise.reject(new Error("invalid_id"));
+        const url = urlFor(parsed);
+        return get(url).then(function(body) {
+          const result = c.detail(body, url, parsed.type);
+          if (parsed.type !== "series" || !result.ajax || !result.post || !result.ajax.nonce) return result.meta;
+          const known = {};
+          result.episodes.forEach((ep) => {
+            known[ep.season] = true;
+          });
+          const missing = result.seasons.filter((season) => !known[season]).slice(0, 3);
+          return missing.reduce(function(chain, season) {
+            return chain.then(function() {
+              const endpoint = h.safeURL(result.ajax.url, base);
+              if (!endpoint || new URL(endpoint).origin !== new URL(base).origin) return;
+              return get(endpoint, {
+                method: "POST",
+                headers: { "User-Agent": UA, Referer: url, "Content-Type": "application/x-www-form-urlencoded" },
+                body: "action=action_select_season&nonce=" + encodeURIComponent(result.ajax.nonce) + "&season=" + season + "&post=" + encodeURIComponent(result.post)
+              }).then(function(fragment) {
+                result.episodes = result.episodes.concat(c.episodeLinks(fragment, url, id));
+              }).catch(function() {
+              });
+            });
+          }, Promise.resolve()).then(function() {
+            const seen = {};
+            result.meta.videos = result.episodes.sort((a, b) => a.season - b.season || a.episode - b.episode).filter(function(ep) {
+              if (seen[ep.id]) return false;
+              seen[ep.id] = true;
+              return true;
+            }).map(function(ep) {
+              const video = Object.assign({}, ep);
+              delete video.url;
+              return video;
+            });
+            return result.meta;
+          });
+        });
+      }
+      function findEpisode(seriesURL, season, episode) {
+        return get(seriesURL).then(function(body) {
+          const result = c.detail(body, seriesURL, "series");
+          const found = result.episodes.find((ep) => ep.season === season && ep.episode === episode);
+          if (found) return found.url;
+          const endpoint = result.ajax && h.safeURL(result.ajax.url, base);
+          if (!result.seasons.includes(season) || !endpoint || new URL(endpoint).origin !== new URL(base).origin || !result.post)
+            throw new Error("episode_unavailable");
+          return get(endpoint, {
+            method: "POST",
+            headers: { "User-Agent": UA, Referer: seriesURL, "Content-Type": "application/x-www-form-urlencoded" },
+            body: "action=action_select_season&nonce=" + encodeURIComponent(result.ajax.nonce || "") + "&season=" + season + "&post=" + encodeURIComponent(result.post)
+          }).then(function(fragment) {
+            const observed = c.episodeLinks(fragment, seriesURL, result.meta.id).find((ep) => ep.season === season && ep.episode === episode);
+            if (!observed) throw new Error("episode_unavailable");
+            return observed.url;
+          }).catch(function() {
+            throw new Error("episode_unavailable");
+          });
+        });
+      }
+      function playbackPage(id) {
+        const parsed = c.parseID(id);
+        if (!parsed) return Promise.reject(new Error("invalid_id"));
+        if (parsed.type === "movie") return Promise.resolve(urlFor(parsed));
+        if (parsed.season === null || parsed.episode === null) return Promise.reject(new Error("episode_required"));
+        return findEpisode(urlFor(parsed), parsed.season, parsed.episode);
+      }
+      return { catalog, metadata, playbackPage, findEpisode, get };
+    }
+    module2.exports = { createSource };
+  }
+});
+
 // src/extractor.js
 var require_extractor = __commonJS({
   "src/extractor.js"(exports2, module2) {
@@ -644,7 +899,7 @@ var require_extractor = __commonJS({
     var html = require_html();
     var URL = require_url();
     var { unpack } = require_unpack();
-    var UA = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    var { UA } = require_extractor_constants();
     function createExtractor2(config) {
       config = config || {};
       const fetcher = config.fetch || fetch;
@@ -774,7 +1029,7 @@ var require_extractor = __commonJS({
         }), Promise.resolve([]));
       }
       function inspect(pageURL) {
-        if (new URL(pageURL).origin !== new URL(base).origin || !/^\/pelicula\/[^/]+\/?$/.test(new URL(pageURL).pathname))
+        if (new URL(pageURL).origin !== new URL(base).origin || !/^\/(?:pelicula|episodio)\/[^/]+\/?$/.test(new URL(pageURL).pathname))
           return Promise.reject(new Error("invalid_movie_page"));
         return request(pageURL, base + "/").then(function(page) {
           const reason = html.stopReason(page.body);
@@ -826,7 +1081,7 @@ var require_extractor = __commonJS({
           return request(url, base + "/").then(function(page) {
             const reason = html.stopReason(page.body);
             if (reason) throw new Error(reason);
-            return html.searchResults(page.body, base);
+            return html.searchResults(page.body, base, details.type);
           }).catch(function(error) {
             note("search", url, error.message);
             return [];
@@ -844,6 +1099,12 @@ var require_extractor = __commonJS({
       function extract(details) {
         return search(details).then(function(matches) {
           if (!matches.length) return { streams: [], diagnostics: diagnostics.concat([{ stage: "match", status: "no_exact_match" }]) };
+          if (details.type === "series") {
+            const { createSource } = require_source();
+            return createSource({ fetch: fetcher, base }).findEpisode(matches[0].url, details.season, details.episode).then(inspect).catch(function(error) {
+              return { streams: [], diagnostics: diagnostics.concat([{ stage: "episode", status: error.message }]) };
+            });
+          }
           return inspect(matches[0].url);
         });
       }
@@ -856,19 +1117,24 @@ var require_extractor = __commonJS({
 // src/index.js
 var { createExtractor } = require_extractor();
 function getStreams(tmdbId, mediaType, season, episode) {
-  if (mediaType !== "movie" || !/^\d+$/.test(String(tmdbId))) return Promise.resolve([]);
+  if (!["movie", "tv", "series"].includes(mediaType) || !/^\d+$/.test(String(tmdbId))) return Promise.resolve([]);
+  const isSeries = mediaType !== "movie";
+  if (isSeries && (!Number.isInteger(Number(season)) || !Number.isInteger(Number(episode)) || Number(season) < 1 || Number(episode) < 1)) return Promise.resolve([]);
   const key = typeof globalThis !== "undefined" && globalThis.TMDB_API_KEY;
   if (!key) return Promise.resolve([]);
   const id = encodeURIComponent(String(tmdbId));
-  const url = "https://api.themoviedb.org/3/movie/" + id + "?language=es-MX&api_key=" + encodeURIComponent(key);
+  const url = "https://api.themoviedb.org/3/" + (isSeries ? "tv/" : "movie/") + id + "?language=es-MX&api_key=" + encodeURIComponent(key);
   return Promise.resolve().then(() => fetch(url)).then(function(response) {
     if (!response.ok) throw new Error("metadata_unavailable");
     return response.json();
   }).then(function(meta) {
-    if (!meta || !meta.title && !meta.original_title) return [];
+    if (!meta || !meta.title && !meta.original_title && !meta.name) return [];
     return createExtractor().extract({
-      titles: [meta.title, meta.original_title].filter(Boolean),
-      year: Number(String(meta.release_date || "").slice(0, 4)) || null
+      titles: [meta.title || meta.name, meta.original_title || meta.original_name].filter(Boolean),
+      year: Number(String(meta.release_date || meta.first_air_date || "").slice(0, 4)) || null,
+      type: isSeries ? "series" : "movie",
+      season: Number(season),
+      episode: Number(episode)
     }).then((report) => report.streams);
   }).catch(function() {
     return [];

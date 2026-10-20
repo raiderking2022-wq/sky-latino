@@ -1,0 +1,21 @@
+{
+  "name": "sky-latino-extractor",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Extractor experimental y plugin local para Nuvio.",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node scripts/build.js",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.js",
+    "test:live": "node scripts/live.js",
+    "test:decode": "node scripts/decode.js"
+  },
+  "dependencies": {
+    "url-parse": "1.5.10",
+    "cheerio": "1.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.11"
+  }
+}

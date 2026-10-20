@@ -1,25 +1,36 @@
 # sky latino
 
-Plugin experimental de películas para Nuvio, versión 0.1.1. La interfaz muestra únicamente el nombre `sky latino`, el idioma y la resolución comprobada, sin nombres ni logos de las plataformas de origen.
+Versión 0.2.0, preparada para añadir catálogo, buscador y series a Nuvio. Esta revisión todavía no sustituye a la versión pública 0.1.1; requiere aprobación de publicación y una prueba posterior en el dispositivo.
 
-## Instalación prevista
+## Componentes
 
-Cuando este repositorio haya sido publicado, agregar su URL de `manifest.json` en la sección de repositorios de plugins de Nuvio. Esta es una integración de providers, no un addon Stremio; el archivo compilado se encuentra en `providers/sky-latino.js`, siguiendo el [formato de repositorios de Nuvio](https://github.com/tapframe/nuvio-providers).
+- **Plugin nativo:** `manifest.json` y `providers/sky-latino.js`. Resuelve fuentes para películas y episodios a partir de los metadatos que proporciona Nuvio.
+- **Addon de catálogo:** `server.js` y `addon/manifest.json`. Entrega listas paginadas, búsquedas, metadatos, episodios y enlaces de reproducción para títulos con identificadores propios.
+- **Página de instalación:** `public/`. Explica cómo añadir el addon y muestra el enlace correspondiente al entorno; una vista previa privada no se presenta como enlace público instalable.
 
-La versión está habilitada para pruebas y declara únicamente películas. El runtime debe proporcionar `globalThis.TMDB_API_KEY` para consultar metadatos, según las [notas de compatibilidad de Nuvio](https://github.com/Gowaru/gowaru-nuvio-providers/blob/main/AGENTS.md); no se incluye ninguna clave privada en este repositorio.
+La descripción funcional y los límites están en `PUBLICACION.md`. Los resultados de comprobación se entregan por separado y se guardan en el directorio local `reports/`, excluido del código público.
 
-## Estado de las pruebas
+## Desarrollo
 
-La implementación inicial pasó 32 pruebas automatizadas el 20 de octubre de 2026 y la versión renombrada se comprueba nuevamente antes de su publicación. En las pruebas reales obtuvo tres candidatos HLS para TRON: Ares y tres para Tron: El Legado; una muestra de TRON: Ares de 1920×804, con video H.264 y audio AAC, se decodificó durante tres segundos con FFmpeg.
+Requiere Node.js 20 o posterior, npm y cURL. FFmpeg y FFprobe son opcionales y se usan solo para las pruebas de decodificación.
 
-Esto no garantiza disponibilidad futura de los servidores ni reproducción completa de las películas. La instalación y reproducción dentro del Nuvio del usuario siguen pendientes de prueba.
+```sh
+npm ci
+npm test
+npm run test:live
+PORT=5100 npm start
+```
 
-## Límites
+`npm test` recompila el plugin antes de comprobar el parser, los resolvers, el contrato de addon y la integración en un contexto sin URL global. El backend no usa claves privadas ni sesiones de usuario para consultar su catálogo.
 
-- **Cobertura:** algunos reproductores dinámicos no se resuelven. El plugin devuelve una lista vacía si no puede comprobar un enlace.
-- **Calidad:** se prioriza la variante más alta comprobada, pero 1920×804 no se etiqueta falsamente como 1920×1080.
-- **Acceso:** no resuelve verificaciones humanas ni contenido DRM y no incluye credenciales o sesiones de terceros.
-- **Datos técnicos:** se conservan los dominios y encabezados necesarios para reproducir. Solo los nombres y logos de las plataformas se ocultan en los campos visibles de Nuvio.
-- **Licencias:** las dependencias incluidas en el archivo compilado tienen sus avisos en `licenses/` y `THIRD-PARTY-NOTICES.md`.
+## Fuentes y compatibilidad
 
-Este repositorio no aloja archivos de películas. El plugin consulta fuentes externas al momento de buscar opciones de reproducción.
+La implementación consulta [PelisForte](https://www2.pelisforte.se/portal003), incluidas las [series](https://www2.pelisforte.se/series-1746289646). SoloLatino y PelisGo siguen fuera del alcance de esta revisión.
+
+El plugin nativo usa la firma `getStreams(tmdbId, mediaType, season, episode)` documentada por [el formato de providers](https://github.com/autovalue/nuvio-plugins/blob/main/DOCUMENTATION.md). La variable de metadatos `globalThis.TMDB_API_KEY` se describe en [las notas de compatibilidad del runtime](https://github.com/Gowaru/gowaru-nuvio-providers/blob/main/AGENTS.md); no se incluye ninguna clave privada.
+
+## Seguridad y límites
+
+La resolución sigue enlaces literales y decodifica estáticamente una familia de configuraciones empaquetadas, sin ejecutar scripts remotos, resolver verificaciones humanas ni gestionar DRM. Los episodios se obtienen de enlaces observados; no se inventan temporadas para completar listas inaccesibles.
+
+La validación HTTP y una muestra decodificada no demuestran reproducción completa o compatibilidad en todos los dispositivos. La instalación, el buscador y la reproducción dentro del Nuvio del usuario siguen siendo comprobaciones separadas.
