@@ -4,6 +4,7 @@ const { promisify } = require('node:util');
 const { randomBytes } = require('node:crypto');
 const run = promisify(execFile);
 const { safeURL } = require('../src/html');
+const { resolvePublicAddress } = require('./network-policy');
 
 function parseResponse(output, marker) {
   const cut = output.lastIndexOf(marker);
@@ -32,9 +33,18 @@ function parseResponse(output, marker) {
 async function publicFetch(url, init, depth) {
   init = init || {};
   depth = depth || 0;
-  if (!safeURL(url)) throw new Error('unsafe_url');
+  url = safeURL(url);
+  if (!url) throw new Error('unsafe_url');
+  const destination = new URL(url);
+  const address = await resolvePublicAddress(destination.hostname);
+  const port = destination.port || (destination.protocol === 'https:' ? '443' : '80');
   const marker = '\n__SKY_' + randomBytes(8).toString('hex') + '__';
-  const args = ['--silent', '--show-error', '--max-time', '8', '--dump-header', '-',
+  // Ignore curl configuration/proxies and pin the validated DNS answer for this
+  // connection. TLS still verifies the original hostname. Every redirect repeats
+  // URL validation, DNS validation and pinning, preventing DNS rebinding.
+  const args = ['--disable', '--proxy', '', '--noproxy', '*', '--ipv4',
+    '--proto', '=http,https', '--resolve', destination.hostname + ':' + port + ':' + address,
+    '--silent', '--show-error', '--max-time', '8', '--dump-header', '-',
     '--write-out', marker + '%{http_code}\n%{url_effective}'];
   if (init.method === 'HEAD') args.push('--head');
   else args.push('--max-filesize', '2000000');

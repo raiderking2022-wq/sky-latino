@@ -35,7 +35,21 @@ function createSource(options) {
     const page = Math.floor((skip || 0) / 20) + 1;
     const url = pageURL(type, page, query);
     if (!url) return Promise.resolve([]);
-    return get(url).then(body => c.cards(body, base, type).items.slice((skip || 0) % 20).map(item => item.meta));
+    return get(url).then(body => c.cards(body, base, type).items.slice((skip || 0) % 20)).then(function (items) {
+      if (!query || h.normalize(query).length < 3) return items.map(item => item.meta);
+      const wanted = h.normalize(query);
+      const selected = items.filter(item => !h.normalize(item.meta.name).includes(wanted)).slice(0, 4);
+      // Keep a verified original title in search cards so client-side filters
+      // can match the English query as well as the canonical Spanish title.
+      return Promise.all(selected.map(function (item) {
+        return get(item.url).then(function (body) {
+          const aliases = h.alternativeTitles(body);
+          const matching = aliases.find(alias => h.normalize(alias).includes(wanted));
+          if (matching && h.normalize(matching) !== h.normalize(item.meta.name))
+            item.meta.name += ' / ' + matching;
+        }).catch(function () {});
+      })).then(() => items.map(item => item.meta));
+    });
   }
   function urlFor(parsed) {
     return base + (parsed.type === 'series' ? '/serie/' : '/pelicula/') + parsed.slug;

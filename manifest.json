@@ -1,12 +1,14 @@
 {
   "name": "sky latino",
-  "version": "0.2.0",
+  "version": "0.3.0",
+  "logo": "https://sky-latino.pplx.app/assets/sky-latino-icon.png?v=0.3.0",
   "scrapers": [
     {
       "id": "sky-latino",
       "name": "sky latino",
       "description": "Fuentes de películas y series con enlaces comprobados. El catálogo se instala por separado como addon.",
-      "version": "0.2.0",
+      "version": "0.3.0",
+      "logo": "https://sky-latino.pplx.app/assets/sky-latino-icon.png?v=0.3.0",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/sky-latino.js",
       "enabled": true,

@@ -1,11 +1,16 @@
 {
   "id": "org.skylatino.catalog",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "sky latino",
   "description": "Catálogo de películas y series en español, búsqueda y reproducción por episodios. Disponibilidad según las fuentes externas.",
-  "resources": ["catalog", "meta", "stream"],
+  "resources": [
+    "catalog",
+    { "name": "meta", "types": ["movie", "series"], "idPrefixes": ["sky:"] },
+    "stream"
+  ],
   "types": ["movie", "series"],
-  "idPrefixes": ["sky:"],
+  "idPrefixes": ["sky:", "tt"],
+  "logo": "https://sky-latino.pplx.app/assets/sky-latino-icon.png?v=0.3.0",
   "catalogs": [
     {
       "type": "movie",

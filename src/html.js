@@ -17,7 +17,7 @@ function safeURL(value, base) {
     // No credentials, local addresses or arbitrary ports from untrusted HTML.
     if (!/^https?:$/.test(u.protocol) || u.username || u.password ||
         (u.port && u.port !== '80' && u.port !== '443') ||
-        !host.includes('.') || /[:\[\]]/.test(host) ||
+        !host.includes('.') || /[:\[\]]/.test(host) || host.endsWith('.') ||
         /^(?:0x[\da-f]+|\d+)(?:\.(?:0x[\da-f]+|\d+)){0,3}$/i.test(host) ||
         /(^|\.)(localhost|local|internal|test|invalid)$/.test(host)) return null;
     return u.href;
@@ -56,13 +56,16 @@ function searchResults(html, base, mediaType) {
 function rankResults(results, details) {
   const titles = (details.titles || [details.title]).map(normalize).filter(Boolean);
   return results.map(function (result) {
-    const title = normalize(result.title);
+    const candidateTitles = [result.title].concat(result.aliases || []).map(normalize).filter(Boolean);
     let score = -1;
     titles.forEach(function (wanted) {
-      const words = wanted.split(' ');
-      const overlap = words.filter(w => title.split(' ').includes(w)).length / words.length;
-      const candidate = title === wanted ? 100 : overlap >= 0.8 ? 70 + overlap : -1;
-      score = Math.max(score, candidate);
+      candidateTitles.forEach(function (title) {
+        if ((wanted.match(/\b\d+\b/g) || []).join(',') !== (title.match(/\b\d+\b/g) || []).join(',')) return;
+        const words = wanted.split(' ');
+        const overlap = words.filter(w => title.split(' ').includes(w)).length / words.length;
+        const candidate = title === wanted ? 100 : overlap >= 0.8 ? 70 + overlap : -1;
+        score = Math.max(score, candidate);
+      });
     });
     if (details.year && result.year) {
       if (Math.abs(details.year - result.year) > 1) score = -1;
@@ -70,6 +73,22 @@ function rankResults(results, details) {
     }
     return Object.assign({}, result, { score });
   }).filter(r => r.score >= 70).sort((a, b) => b.score - a.score);
+}
+
+function alternativeTitles(markup) {
+  const $ = cheerio.load(markup);
+  const aliases = [];
+  $('p').each(function (_, element) {
+    const caption = normalize($(element).text());
+    if (!/tambien conocid[ao].*titulos|titulos alternativos|titulo original/.test(caption)) return;
+    const paragraph = $(element).next('p');
+    const raw = paragraph.html() || '';
+    raw.split(/<br\s*\/?>/i).forEach(function (part) {
+      const value = text(cheerio.load('<p>' + part + '</p>')('p').text()).replace(/[.\s]+$/, '');
+      if (value.length >= 2 && value.length <= 160 && !aliases.includes(value)) aliases.push(value);
+    });
+  });
+  return aliases.slice(0, 12);
 }
 
 function language(value) {
@@ -185,5 +204,5 @@ function parseHLS(body, base) {
 
 module.exports = {
   BASE, text, safeURL, normalize, searchResults, rankResults, playerOptions,
-  stopReason, followLinks, mediaLinks, parseHLS
+  stopReason, followLinks, mediaLinks, parseHLS, alternativeTitles
 };

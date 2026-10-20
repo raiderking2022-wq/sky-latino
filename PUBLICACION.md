@@ -1,45 +1,27 @@
-# sky latino
+# sky latino 0.3.0
 
-Versión 0.2.0: catálogo, búsqueda y reproducción de películas y series en Nuvio. Esta revisión añade un servicio de addon separado del plugin nativo; el enlace antiguo del plugin, por sí solo, no puede crear filas de catálogo.
+Actualización preparada para buscar títulos en inglés y utilizar el icono azul de sky latino. Conserva los catálogos de películas y series y el enlace de instalación del addon; los usuarios existentes podrían necesitar actualizar o volver a añadir el mismo manifiesto para que Nuvio registre el nuevo logo y el prefijo de identificadores IMDb.
 
-## Dos piezas complementarias
+## Búsqueda y reproducción
 
-- **Plugin:** `manifest.json` y `providers/sky-latino.js`. Añade fuentes de películas y episodios a títulos reconocidos por Nuvio; no crea el catálogo.
-- **Addon:** `/addon/manifest.json`, servido por `server.js`. Añade las filas `sky latino · Películas` y `sky latino · Series`, acepta búsquedas del cliente y entrega metadatos, episodios y enlaces con identificadores propios.
+Cuando el resultado de la fuente utiliza un nombre español, la tarjeta puede mostrar también su título original inglés verificado. Por ejemplo, la comprobación local relacionó `Squid Game` con `El juego del calamar`, y `Project Hail Mary` con `Proyecto Fin del Mundo`.
 
-El addon se instala en la sección de addons de Nuvio, no como repositorio de plugins. El usuario puede mantener el plugin anterior mientras prueba el catálogo.
+Además, el addon puede resolver resultados generales con identificadores IMDb. Coteja el nombre de los metadatos públicos con los nombres y alias de la fuente, y no acepta un año incompatible o una secuela con otro número.
 
-## Qué se probó
+## Icono azul
 
-La comprobación local del 20 de octubre de 2026 incluyó dos páginas de películas, con 20 títulos cada una y sin duplicados entre ambas, y cuatro series en el listado actual de la fuente. Esos 40 títulos son una muestra comprobada, no el límite total del catálogo; el servicio solicita páginas adicionales cuando el cliente las pide.
+La imagen se integra como `logo` en el manifiesto del addon y en el del plugin. Es una identidad propia de sky latino; no contiene logos de las plataformas utilizadas como fuentes.
 
-Las consultas `Tron` y `calamar` devolvieron resultados de películas y series. La ficha de El juego del calamar devolvió seis episodios observados de la temporada 3, y el episodio 3×1 produjo tres candidatos HLS con variantes de 1920×960.
+## Protección del servicio
 
-Se ejecutaron 51 pruebas automatizadas. La prueba local del contrato de addon no demuestra todavía que el buscador, las filas y la reproducción se vean correctamente en el Nuvio del usuario; esa validación sigue pendiente después de alojar e instalar el servicio público.
+- El transporte del servidor solo conecta a direcciones IPv4 públicas comprobadas por DNS y fijadas durante la conexión. Cada redirección se valida de nuevo; no utiliza proxies ni configuración externa de cURL.
+- Los límites de solicitudes no confían en cabeceras enviadas por el cliente. Se permiten como máximo cuatro tareas de consulta distintas simultáneas por proceso.
+- Detrás de un proxy, los clientes pueden compartir un límite conservador. Estos controles por proceso no sustituyen una protección distribuida de infraestructura ante ataques de volumen.
 
-## Límites
+## Límites que permanecen
 
-- El addon consulta una fuente externa al momento de listar y buscar. No incorpora automáticamente SoloLatino ni PelisGo y no aloja películas.
-- La fuente actual solo mostró cuatro series en su listado. No se prometen series o temporadas que no se hayan podido obtener.
-- Algunos capítulos y reproductores no están disponibles o requieren verificaciones que no se resuelven. Se devuelven únicamente episodios observados y enlaces que pasan las comprobaciones HTTP.
-- Una ficha del catálogo no garantiza que tenga una fuente reproducible. Tampoco se garantiza disponibilidad futura de un enlace firmado.
-- La interfaz muestra `sky latino`, idioma y dimensiones comprobadas. No incluye nombres ni logos de las páginas de origen; los dominios técnicos necesarios permanecen en el código y las solicitudes.
-
-## Ejecutar el servicio
-
-Requiere Node.js 20 o posterior y cURL. El servicio no necesita claves TMDB ni sesiones de usuario para su catálogo y sus identificadores propios.
-
-```sh
-npm ci
-npm run build
-npm test
-PORT=5100 npm start
-```
-
-El plugin nativo sí utiliza los metadatos que proporciona el runtime de Nuvio mediante `globalThis.TMDB_API_KEY`. No se distribuye ninguna clave privada.
-
-## Publicación
-
-El código incluye una configuración de Vercel y una página de instalación mínima. Un manifiesto alojado como archivo estático en GitHub no puede responder por sí solo a consultas dinámicas de catálogo, búsqueda y episodios; hace falta alojar el proceso de Node.js.
-
-La vista previa privada no es un enlace instalable desde Nuvio. La publicación permanente de esta revisión, la lectura sin autenticación y la prueba en el dispositivo se deben verificar por separado.
+- Solo se obtiene video de la fuente integrada; buscar en inglés no añade bibliotecas de contenido nuevas.
+- Los servidores dinámicos no soportados y las temporadas bloqueadas siguen sin estar disponibles.
+- El puente general cubre identificadores IMDb. Otros formatos de identificador dependen del soporte de Nuvio o del plugin nativo.
+- La imagen y estos cambios no aparecen en el servicio público hasta publicar esta revisión.
+- Las pruebas del servicio no sustituyen la comprobación del buscador y la reproducción dentro del dispositivo del usuario.

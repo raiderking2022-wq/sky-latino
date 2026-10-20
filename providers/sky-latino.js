@@ -418,7 +418,7 @@ var require_html = __commonJS({
       try {
         const u = new URL(input, base);
         const host = u.hostname.toLowerCase();
-        if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.port && u.port !== "80" && u.port !== "443" || !host.includes(".") || /[:\[\]]/.test(host) || /^(?:0x[\da-f]+|\d+)(?:\.(?:0x[\da-f]+|\d+)){0,3}$/i.test(host) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host)) return null;
+        if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.port && u.port !== "80" && u.port !== "443" || !host.includes(".") || /[:\[\]]/.test(host) || host.endsWith(".") || /^(?:0x[\da-f]+|\d+)(?:\.(?:0x[\da-f]+|\d+)){0,3}$/i.test(host) || /(^|\.)(localhost|local|internal|test|invalid)$/.test(host)) return null;
         return u.href;
       } catch (_) {
         return null;
@@ -451,13 +451,16 @@ var require_html = __commonJS({
     function rankResults(results, details) {
       const titles = (details.titles || [details.title]).map(normalize).filter(Boolean);
       return results.map(function(result) {
-        const title = normalize(result.title);
+        const candidateTitles = [result.title].concat(result.aliases || []).map(normalize).filter(Boolean);
         let score = -1;
         titles.forEach(function(wanted) {
-          const words = wanted.split(" ");
-          const overlap = words.filter((w) => title.split(" ").includes(w)).length / words.length;
-          const candidate = title === wanted ? 100 : overlap >= 0.8 ? 70 + overlap : -1;
-          score = Math.max(score, candidate);
+          candidateTitles.forEach(function(title) {
+            if ((wanted.match(/\b\d+\b/g) || []).join(",") !== (title.match(/\b\d+\b/g) || []).join(",")) return;
+            const words = wanted.split(" ");
+            const overlap = words.filter((w) => title.split(" ").includes(w)).length / words.length;
+            const candidate = title === wanted ? 100 : overlap >= 0.8 ? 70 + overlap : -1;
+            score = Math.max(score, candidate);
+          });
         });
         if (details.year && result.year) {
           if (Math.abs(details.year - result.year) > 1) score = -1;
@@ -465,6 +468,21 @@ var require_html = __commonJS({
         }
         return Object.assign({}, result, { score });
       }).filter((r) => r.score >= 70).sort((a, b) => b.score - a.score);
+    }
+    function alternativeTitles(markup) {
+      const $ = cheerio.load(markup);
+      const aliases = [];
+      $("p").each(function(_, element) {
+        const caption = normalize($(element).text());
+        if (!/tambien conocid[ao].*titulos|titulos alternativos|titulo original/.test(caption)) return;
+        const paragraph = $(element).next("p");
+        const raw = paragraph.html() || "";
+        raw.split(/<br\s*\/?>/i).forEach(function(part) {
+          const value = text(cheerio.load("<p>" + part + "</p>")("p").text()).replace(/[.\s]+$/, "");
+          if (value.length >= 2 && value.length <= 160 && !aliases.includes(value)) aliases.push(value);
+        });
+      });
+      return aliases.slice(0, 12);
     }
     function language(value) {
       if (/latino/i.test(value)) return "Latino";
@@ -578,7 +596,8 @@ var require_html = __commonJS({
       stopReason,
       followLinks,
       mediaLinks,
-      parseHLS
+      parseHLS,
+      alternativeTitles
     };
   }
 });
@@ -813,7 +832,20 @@ var require_source = __commonJS({
         const page = Math.floor((skip || 0) / 20) + 1;
         const url = pageURL(type, page, query);
         if (!url) return Promise.resolve([]);
-        return get(url).then((body) => c.cards(body, base, type).items.slice((skip || 0) % 20).map((item) => item.meta));
+        return get(url).then((body) => c.cards(body, base, type).items.slice((skip || 0) % 20)).then(function(items) {
+          if (!query || h.normalize(query).length < 3) return items.map((item) => item.meta);
+          const wanted = h.normalize(query);
+          const selected = items.filter((item) => !h.normalize(item.meta.name).includes(wanted)).slice(0, 4);
+          return Promise.all(selected.map(function(item) {
+            return get(item.url).then(function(body) {
+              const aliases = h.alternativeTitles(body);
+              const matching = aliases.find((alias) => h.normalize(alias).includes(wanted));
+              if (matching && h.normalize(matching) !== h.normalize(item.meta.name))
+                item.meta.name += " / " + matching;
+            }).catch(function() {
+            });
+          })).then(() => items.map((item) => item.meta));
+        });
       }
       function urlFor(parsed) {
         return base + (parsed.type === "series" ? "/serie/" : "/pelicula/") + parsed.slug;
@@ -914,7 +946,7 @@ var require_extractor = __commonJS({
         options = options || {};
         url = html.safeURL(url, base);
         if (!url) return Promise.reject(new Error("unsafe_url"));
-        if (Date.now() > deadline || ++requestCount > (config.maxRequests || 24))
+        if (Date.now() > deadline || ++requestCount > (config.maxRequests || 48))
           return Promise.reject(new Error("request_budget"));
         const headers = { "User-Agent": UA, "Accept-Language": "es-MX,es;q=0.9,en;q=0.5" };
         if (referer) headers.Referer = referer;
@@ -1075,8 +1107,14 @@ var require_extractor = __commonJS({
         });
       }
       function search(details) {
-        const titles = (details.titles || [details.title]).filter(Boolean);
-        return sequence(titles.slice(0, 2).map((title) => function() {
+        const unique = {};
+        const titles = (details.titles || [details.title]).filter(function(title) {
+          const key = html.normalize(title);
+          if (!key || unique[key]) return false;
+          unique[key] = true;
+          return true;
+        });
+        return sequence(titles.slice(0, 3).map((title) => function() {
           const url = base + "/?s=" + encodeURIComponent(title);
           return request(url, base + "/").then(function(page) {
             const reason = html.stopReason(page.body);
@@ -1087,13 +1125,21 @@ var require_extractor = __commonJS({
             return [];
           });
         })).then(function(groups) {
-          const ranked = html.rankResults([].concat.apply([], groups), details);
           const seen = {};
-          return ranked.filter(function(item) {
+          const candidates = [].concat.apply([], groups).filter(function(item) {
             if (seen[item.url]) return false;
             seen[item.url] = true;
             return true;
           });
+          const ranked = html.rankResults(candidates, details);
+          if (ranked.length) return ranked;
+          return sequence(candidates.slice(0, 3).map((item) => function() {
+            return request(item.url, base + "/").then(function(page) {
+              return Object.assign({}, item, { aliases: html.alternativeTitles(page.body) });
+            }).catch(function() {
+              return item;
+            });
+          })).then((enriched) => html.rankResults(enriched, details));
         });
       }
       function extract(details) {
@@ -1123,14 +1169,16 @@ function getStreams(tmdbId, mediaType, season, episode) {
   const key = typeof globalThis !== "undefined" && globalThis.TMDB_API_KEY;
   if (!key) return Promise.resolve([]);
   const id = encodeURIComponent(String(tmdbId));
-  const url = "https://api.themoviedb.org/3/" + (isSeries ? "tv/" : "movie/") + id + "?language=es-MX&api_key=" + encodeURIComponent(key);
+  const url = "https://api.themoviedb.org/3/" + (isSeries ? "tv/" : "movie/") + id + "?language=es-MX&api_key=" + encodeURIComponent(key) + "&append_to_response=alternative_titles";
   return Promise.resolve().then(() => fetch(url)).then(function(response) {
     if (!response.ok) throw new Error("metadata_unavailable");
     return response.json();
   }).then(function(meta) {
     if (!meta || !meta.title && !meta.original_title && !meta.name) return [];
+    const alternate = meta.alternative_titles && (meta.alternative_titles.titles || meta.alternative_titles.results) || [];
+    const aliases = alternate.filter((item) => ["MX", "ES", "AR", "US", "GB"].includes(item.iso_3166_1)).map((item) => item.title);
     return createExtractor().extract({
-      titles: [meta.title || meta.name, meta.original_title || meta.original_name].filter(Boolean),
+      titles: [meta.title || meta.name, meta.original_title || meta.original_name].concat(aliases).filter(Boolean),
       year: Number(String(meta.release_date || meta.first_air_date || "").slice(0, 4)) || null,
       type: isSeries ? "series" : "movie",
       season: Number(season),

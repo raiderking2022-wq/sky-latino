@@ -204,7 +204,7 @@ test('el plugin devuelve vacío para series y si no recibe la clave del runtime'
 test('el bundle no necesita URL ni temporizadores de navegador', async () => {
   const vm = require('node:vm');
   const routes = goodRoutes();
-  routes['https://api.themoviedb.org/3/movie/264660?language=es-MX&api_key=test-runtime-only'] = function (url) {
+  routes['https://api.themoviedb.org/3/movie/264660?language=es-MX&api_key=test-runtime-only&append_to_response=alternative_titles'] = function (url) {
     return { url, status: 200, ok: true, json: () => Promise.resolve({
       title: 'Prueba', original_title: 'Prueba', release_date: '2020-01-01'
     }) };

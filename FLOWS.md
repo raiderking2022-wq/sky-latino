@@ -1,4 +1,4 @@
-# sky latino 0.2.0: verificación
+# sky latino 0.3.0: verificación
 
 ## Requisitos y límites
 
@@ -15,10 +15,15 @@
 - Películas: comprobar primera y segunda página sin duplicación entre ambas.
 - Series: comprobar lista real, título, metadatos y capítulos numerados.
 - Buscar una película y una serie por el mismo endpoint que usa Nuvio.
+- Buscar nombres ingleses y conservar el nombre original verificado en la tarjeta sin cambiar el identificador del catálogo.
+- Resolver una serie del buscador general con identificador IMDb y cotejar su nombre inglés con los títulos alternativos publicados por la fuente.
+- Rechazar coincidencias por alias con año incompatible o número de secuela distinto.
 - Stream de película: obtener al menos un candidato validado.
 - Stream de serie: solicitar un capítulo observado y obtener un candidato validado.
 - Fuera del camino feliz: id inválido, capítulo ausente, fuente bloqueada y resultado de búsqueda vacío.
 - Contrato de integración: CORS público, respuestas JSON y nombres `sky latino`.
+- Seguridad: bloquear hosts con punto final, DNS privado/mixto y direcciones reservadas; fijar la IP pública al conectar y repetir en redirecciones.
+- Carga: cambiar cabeceras de visitante no elude el límite; una quinta tarea distinta recibe 503 y se libera una plaza al terminar las anteriores.
 
 ## Página de instalación
 
@@ -28,6 +33,7 @@
 - Servicio: confirmar estado conectado; simular fallo y comprobar mensaje que impide confundirlo con instalación lista.
 - Vista previa alojada: reabrir en contexto nuevo, abrir el manifiesto de prueba y comprobar que Copiar enlace esté deshabilitado hasta publicar.
 - Entorno: `sites.pplx.app` y los hosts `preview--…` siempre deben indicar que la instalación pública está pendiente, nunca “Enlace público”.
+- Icono azul: imagen visible, cargada y sin distorsión en la página; logo declarado en el manifiesto nativo y el de catálogo.
 
 ## Pendientes ajenos a la prueba local
 

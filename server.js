@@ -7,6 +7,7 @@ const { createSource } = require('./src/source');
 const { createExtractor } = require('./src/extractor');
 const { parseID } = require('./src/catalog-html');
 const { publicFetch } = require('./backend/fetch');
+const { parseStandardID, createStandardResolver } = require('./backend/standard-ids');
 const addonManifest = require('./addon/manifest.json');
 const pluginManifest = require('./manifest.json');
 
@@ -14,18 +15,25 @@ function createHandler(options) {
   options = options || {};
   const fetcher = options.fetch || publicFetch;
   const source = options.source || createSource({ fetch: fetcher });
+  const resolveStandard = options.resolveStandard || createStandardResolver(fetcher);
   const cache = new Map();
   const pending = new Map();
   const visitors = new Map();
+  let activeTasks = 0;
   function cached(key, ttl, task) {
     const item = cache.get(key);
     if (item && item.expires > Date.now()) return Promise.resolve(item.value);
     if (pending.has(key)) return pending.get(key);
+    if (activeTasks >= 4) return Promise.reject(new Error('server_busy'));
+    activeTasks++;
     const result = Promise.resolve().then(task).then(function (value) {
       cache.set(key, { value, expires: Date.now() + ttl });
       if (cache.size > 500) cache.delete(cache.keys().next().value);
       return value;
-    }).finally(() => pending.delete(key));
+    }).finally(() => {
+      pending.delete(key);
+      activeTasks--;
+    });
     pending.set(key, result);
     return result;
   }
@@ -68,8 +76,14 @@ function createHandler(options) {
       res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=60' });
       return fs.createReadStream(path.join(__dirname, 'public/base.css')).pipe(res);
     }
+    if (pathname === '/assets/sky-latino-icon.png') {
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+      return fs.createReadStream(path.join(__dirname, 'public/assets/sky-latino-icon.png')).pipe(res);
+    }
     // Read-only public service: short-lived, bounded, in-memory rate limiting.
-    const visitor = String(req.headers['x-visitor-id'] || req.socket && req.socket.remoteAddress || 'unknown');
+    // Never trust caller-supplied visitor/forwarding headers. Behind a reverse
+    // proxy this deliberately shares a conservative bucket for that ingress.
+    const visitor = String(req.socket && req.socket.remoteAddress || 'unknown');
     const previous = visitors.get(visitor);
     const bucket = previous && previous.expires > Date.now() ? previous : { count: 0, expires: Date.now() + 60000 };
     visitors.set(visitor, bucket);
@@ -105,16 +119,21 @@ function createHandler(options) {
       if (stream) {
         stream[2] = decodeURIComponent(stream[2]);
         const parsed = parseID(stream[2]);
-        if (!parsed || parsed.type !== stream[1]) return json(res, 404, { streams: [] });
+        const standard = !parsed && parseStandardID(stream[2], stream[1]);
+        if ((!parsed && !standard) || parsed && parsed.type !== stream[1]) return json(res, 404, { streams: [] });
         const result = await cached('stream:' + stream[2], 45000, async () => {
-          const page = await source.playbackPage(stream[2]);
-          const report = await createExtractor({ fetch: fetcher, budgetMs: 35000, maxRequests: 48 }).inspect(page);
+          const extractor = createExtractor({ fetch: fetcher, budgetMs: 35000, maxRequests: 60 });
+          const report = standard
+            ? await extractor.extract(await resolveStandard(standard))
+            : await extractor.inspect(await source.playbackPage(stream[2]));
           return { streams: report.streams };
         });
         return json(res, 200, result, 15);
       }
       return json(res, 404, { error: 'not_found' });
-    } catch (_) {
+    } catch (error) {
+      if (error.message === 'server_busy')
+        return json(res, 503, { error: 'try_again_later', streams: [] });
       // No origin names, signed URLs or internal stack traces in responses.
       if (/\/stream\//.test(pathname)) return json(res, 200, { streams: [] });
       return json(res, 503, { error: 'source_temporarily_unavailable' });

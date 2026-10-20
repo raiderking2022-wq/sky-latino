@@ -18,7 +18,7 @@ function createExtractor(config) {
     options = options || {};
     url = html.safeURL(url, base);
     if (!url) return Promise.reject(new Error('unsafe_url'));
-    if (Date.now() > deadline || ++requestCount > (config.maxRequests || 24))
+    if (Date.now() > deadline || ++requestCount > (config.maxRequests || 48))
       return Promise.reject(new Error('request_budget'));
     const headers = { 'User-Agent': UA, 'Accept-Language': 'es-MX,es;q=0.9,en;q=0.5' };
     if (referer) headers.Referer = referer;
@@ -174,8 +174,13 @@ function createExtractor(config) {
   }
 
   function search(details) {
-    const titles = (details.titles || [details.title]).filter(Boolean);
-    return sequence(titles.slice(0, 2).map(title => function () {
+    const unique = {};
+    const titles = (details.titles || [details.title]).filter(function (title) {
+      const key = html.normalize(title);
+      if (!key || unique[key]) return false;
+      unique[key] = true; return true;
+    });
+    return sequence(titles.slice(0, 3).map(title => function () {
       const url = base + '/?s=' + encodeURIComponent(title);
       return request(url, base + '/').then(function (page) {
         const reason = html.stopReason(page.body);
@@ -183,13 +188,21 @@ function createExtractor(config) {
         return html.searchResults(page.body, base, details.type);
       }).catch(function (error) { note('search', url, error.message); return []; });
     })).then(function (groups) {
-      const ranked = html.rankResults([].concat.apply([], groups), details);
       const seen = {};
-      return ranked.filter(function (item) {
+      const candidates = [].concat.apply([], groups).filter(function (item) {
         if (seen[item.url]) return false;
         seen[item.url] = true;
         return true;
       });
+      const ranked = html.rankResults(candidates, details);
+      if (ranked.length) return ranked;
+      // A source may display a Spanish title even for an English query.
+      // Verify aliases in actual detail pages before accepting a match.
+      return sequence(candidates.slice(0, 3).map(item => function () {
+        return request(item.url, base + '/').then(function (page) {
+          return Object.assign({}, item, { aliases: html.alternativeTitles(page.body) });
+        }).catch(function () { return item; });
+      })).then(enriched => html.rankResults(enriched, details));
     });
   }
 
